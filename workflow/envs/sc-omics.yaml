@@ -1,0 +1,31 @@
+name: sc-omics
+channels:
+  - bioconda
+  - conda-forge
+dependencies:
+  - r-base
+  - r-biocmanager
+  - bioconductor-genomeinfodb
+  - bioconductor-genomicranges
+  - bioconductor-rsamtools
+  - r-signac
+  - r-seurat
+  - bioconductor-ensdb.hsapiens.v86
+  - bioconductor-biovizbase
+  - bioconductor-bsgenome.hsapiens.ucsc.hg38
+  - r-ggplot2
+  - r-patchwork
+  - r-dplyr
+  - r-matrix
+  - r-data.table
+  - r-magrittr
+  - r-hdf5r
+  - bioconductor-annotationhub
+  - r-pheatmap
+  - r-viridislite
+  - bioconductor-jaspar2020
+  - bioconductor-tfbstools
+  - r-rmarkdown
+  - r-tinytex
+  - bioconductor-motifmatchr
+  - r-ggseqlogo

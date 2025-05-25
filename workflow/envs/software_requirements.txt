@@ -1,0 +1,33 @@
+List of software to install and files to download:
+ 
+Software: 
+·         Latest version of R (4.5.0)
+·         Latest version of Rstudio 
+ 
+ 
+R Packages: 
+·         Bioconductor (see https://www.bioconductor.org/install/ )
+·         GenomeInfoDb ( https://bioconductor.org/packages/release/bioc/html/GenomeInfoDb.html )
+·         GenomicRanges ( https://bioconductor.org/packages/release/bioc/html/GenomicRanges.html )
+·         Rsamtools ( https://bioconductor.org/packages/release/bioc/html/Rsamtools.html )
+·         Signac ( https://stuartlab.org/signac/articles/install ; see “Current Release”)
+·         Seurat ( https://satijalab.org/seurat/articles/install.html )
+·         EnsDb.Hsapiens.v86 (https://bioconductor.org/packages/release/data/annotation/html/EnsDb.Hsapiens.v86.html )
+·         biovizBase ( https://www.bioconductor.org/packages/release/bioc/html/biovizBase.html )
+·         BSgenome.Hsapiens.UCSC.hg38 ( https://bioconductor.org/packages/release/data/annotation/html/BSgenome.Hsapiens.UCSC.hg38.html )
+·         ggplot2 ( https://ggplot2.tidyverse.org/ )
+·         patchwork ( https://cran.r-project.org/web/packages/patchwork/readme/README.html )
+·         dplyr ( https://cran.r-project.org/web/packages/dplyr/readme/README.html )
+·         Matrix ( https://rdrr.io/rforge/Matrix/ )
+·         data.table ( https://www.rdocumentation.org/packages/data.table/versions/1.15.4 )
+·         magrittr ( https://cran.r-project.org/web/packages/magrittr/readme/README.html )
+·         hdf5r ( https://www.rdocumentation.org/packages/hdf5r/versions/1.3.10 )
+·         AnnotationHub ( https://bioconductor.org/packages/release/bioc/html/AnnotationHub.html )
+·         pheatmap ( https://rdrr.io/cran/pheatmap/ )
+·         viridis ( https://www.rdocumentation.org/packages/viridis/versions/0.6.5 )
+·         JASPAR2020 (https://bioconductor.org/packages/release/data/annotation/html/JASPAR2020.html)
+·         TFBSTools (https://bioconductor.org/packages//release/bioc/html/TFBSTools.html)
+·         Rmarkdown https://www.rdocumentation.org/packages/rmarkdown/versions/2.28
+·         tinytex https://cran.r-project.org/web/packages/tinytex/index.html
+·         motifmatchr https://www.bioconductor.org/packages/release/bioc/html/motifmatchr.html
+·         ggseqlogo https://cran.r-project.org/web/packages/ggseqlogo/
