@@ -29,3 +29,4 @@ dependencies:
   - r-tinytex
   - bioconductor-motifmatchr
   - r-ggseqlogo
+  - radian
