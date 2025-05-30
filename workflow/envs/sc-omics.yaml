@@ -30,3 +30,6 @@ dependencies:
   - bioconductor-motifmatchr
   - r-ggseqlogo
   - radian
+  - jupyterlab
+  - notebook
+  - r-irkernel
