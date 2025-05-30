@@ -1,0 +1,158 @@
+---
+title: "Data loading"
+subtitle: "10x Adult Brain Dataset"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+opts_chunk$set(echo = TRUE, dpi=600, fig.width = 7.5, fig.height = 4.5)
+opts_knit$set(root.dir = "/Users/antonio.scialdone/My Drive/Lectures/2024_LMU_scMultiomics/practical_sessions/")
+
+
+```
+
+
+
+# Loading Libraries
+
+```{r include=FALSE}
+library(Signac) #install: https://stuartlab.org/signac/articles/install
+library(Seurat)
+library(EnsDb.Hsapiens.v86)
+library(BSgenome.Hsapiens.UCSC.hg38)
+library(ggplot2)
+library(pheatmap)
+library(viridis)
+library(RColorBrewer)
+
+
+```
+
+# Data
+
+Files to download: 
+
+- Feature matrix (filtered): https://cf.10xgenomics.com/samples/cell-arc/2.0.0/human_brain_3k/human_brain_3k_filtered_feature_bc_matrix.h5
+
+- Feature matrix (raw): https://cf.10xgenomics.com/samples/cell-arc/2.0.0/human_brain_3k/human_brain_3k_raw_feature_bc_matrix.h5
+
+- Barcode metrics: https://cf.10xgenomics.com/samples/cell-arc/2.0.0/human_brain_3k/human_brain_3k_per_barcode_metrics.csv
+
+- Fragment file: https://cf.10xgenomics.com/samples/cell-arc/2.0.0/human_brain_3k/human_brain_3k_atac_fragments.tsv.gz
+
+- Fragment file index: https://cf.10xgenomics.com/samples/cell-arc/2.0.0/human_brain_3k/human_brain_3k_atac_fragments.tsv.gz.tbi
+
+
+
+
+
+
+
+# Building a Seurat data object
+
+
+```{r Import genome annotation, warning=FALSE}
+# get gene annotations for hg38
+annotation <- GetGRangesFromEnsDb(ensdb = EnsDb.Hsapiens.v86)
+seqlevels(annotation) <- paste0('chr', seqlevels(annotation))
+genome(annotation) <- 'hg38'
+```
+
+
+
+
+```{r Create RNA and ATAC objects}
+# load the objects
+setwd("/Users/antonio.scialdone/My Drive/Lectures/2024_LMU_scMultiomics/practical_sessions/data")
+counts_raw <- Read10X_h5(filename = "v2/Human Brain Raw Feature Matrix.h5")#human_brain_3k_raw_feature_bc_matrix.h5")
+counts_filtered <- Read10X_h5(filename = "v2/human_brain_3k_filtered_feature_bc_matrix.h5")
+
+#visualize some counts_raw rows - sparse matrix format
+
+metadata <- read.csv(
+  file = "v2/human_brain_3k_per_barcode_metrics.csv",
+  header = TRUE,
+  row.names = 1
+)
+
+# Import the list of cell barcodes that will be used in this notebook
+CellSubset <- readRDS("lessonCells_byCluster.RDS")
+
+# create a Seurat object containing the RNA adata
+multiObj <- CreateSeuratObject(
+  counts = counts_raw$`Gene Expression`[,CellSubset], 
+  assay = "RNA",
+  meta.data = metadata, 
+  project = "Brain",  
+  min.features = 1,
+  min.cells = 1
+)
+
+# create ATAC assay and add it to the object
+multiObj[["ATAC"]] <- CreateChromatinAssay(
+  counts = counts_raw$Peaks[,Cells(multiObj[['RNA']])], # subset the matrix to keep only cells that are in the RNA object
+  sep = c(":", "-"),
+  fragments = 'v2/human_brain_3k_atac_fragments.tsv.gz',
+  annotation = annotation,
+  genome='hg38', 
+  validate.fragments = T,
+  min.features = 1,
+  min.cells = 1
+)
+
+multiObj <- subset(multiObj, cells=Cells(multiObj[['ATAC']]))
+multiObj
+```
+
+```{r}
+rm(counts_filtered)
+rm(counts_raw)
+#rm(objFiltered)
+gc()
+```
+
+```{r plots}
+#Generating violin plots
+DefaultAssay(multiObj) <- 'RNA'
+VlnPlot(multiObj, features = c("nFeature_RNA", "nCount_RNA"), ncol = 3)
+VlnPlot(multiObj, features = c("GFAP", "ALDH1L1"), slot = "counts")
+VlnPlot(multiObj, features = c("DDX3Y", "ALDH1L1"), slot = "counts")
+
+DefaultAssay(multiObj) <- 'ATAC'
+VlnPlot(multiObj, features = c("chr1-191025-191934", "chr1-629469-630395"), ncol = 2)
+
+
+#Generating scatter plots
+FeatureScatter(multiObj, feature1 = 'nFeature_RNA', feature2 = 'nCount_RNA', slot = "count")
+FeatureScatter(multiObj, feature1 = 'nCount_RNA', feature2 = 'nCount_ATAC', slot = "count")
+FeatureScatter(multiObj, feature1 = 'GFAP', feature2 = 'ALDH1L1', slot = "count")
+
+#Finding the names of mitochondrial genes "by hand"
+gene.names<-row.names(multiObj[['RNA']]$counts)
+id<-grepl(gene.names, pattern='^MT-')
+mt.names<-gene.names[id]
+
+
+#Compute the fraction mapping to mitochondrial genes with Seurat
+DefaultAssay(multiObj) <- 'RNA'
+PercentageFeatureSet(multiObj, pattern = "^MT-")
+
+
+
+
+
+```
+
+
+# Homework assignment
+
+1. Build the Seurat object with the cells assigned to you
+2. Generate violin plots and scatter plots of the counts associated with the following genes: MOG, MBP, CDH5, VWF
+3. Which correlation coefficient is plotted above the plot produced by the "FeatureScatter" function? 
+4. Count the number of peaks on chromosome 5 and chromosome Y. 
+5. Count the fraction of peak counts on chromosome 5 and chromosome Y.
+
+

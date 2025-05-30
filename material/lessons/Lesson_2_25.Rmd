@@ -1,0 +1,355 @@
+---
+title: "QC and data normalization"
+subtitle: "10x Adult Brain Dataset"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dpi=600, fig.width = 7.5, fig.height = 4.5)
+```
+
+```{r include=FALSE}
+library(Signac)
+library(Seurat)
+library(EnsDb.Hsapiens.v86)
+library(BSgenome.Hsapiens.UCSC.hg38)
+library(ggplot2)
+library(pheatmap)
+library(viridis)
+library(RColorBrewer)
+set.seed(3452)
+```
+
+# Data
+
+Feature matrix (filtered): https://cf.10xgenomics.com/samples/cell-arc/2.0.0/human_brain_3k/human_brain_3k_filtered_feature_bc_matrix.h5
+Feature matrix (raw): https://cf.10xgenomics.com/samples/cell-arc/2.0.0/human_brain_3k/human_brain_3k_raw_feature_bc_matrix.h5
+Barcode metrics: https://cf.10xgenomics.com/samples/cell-arc/2.0.0/human_brain_3k/human_brain_3k_per_barcode_metrics.csv
+Fragment file: https://cf.10xgenomics.com/samples/cell-arc/2.0.0/human_brain_3k/human_brain_3k_atac_fragments.tsv.gz
+Fragment file index: https://cf.10xgenomics.com/samples/cell-arc/2.0.0/human_brain_3k/human_brain_3k_atac_fragments.tsv.gz.tbi
+
+```{r Import genome annotation, warning=FALSE}
+# get gene annotations for hg38
+annotation <- GetGRangesFromEnsDb(ensdb = EnsDb.Hsapiens.v86)
+seqlevels(annotation) <- paste0('chr', seqlevels(annotation))
+genome(annotation) <- 'hg38'
+```
+
+
+```{r Create RNA and ATAC objects}
+# load the objects
+counts_raw <- Read10X_h5(filename = "/Users/antonio.scialdone/My Drive/Lectures/2024_LMU_scMultiomics/practical_sessions/data/v2/Human Brain 3k Raw Matrix.h5")
+#human_brain_3k_raw_feature_bc_matrix.h5")
+counts_filtered <- Read10X_h5(filename = "/Users/antonio.scialdone/My Drive/Lectures/2024_LMU_scMultiomics/practical_sessions/data/v2/human_brain_3k_filtered_feature_bc_matrix.h5")
+
+metadata <- read.csv(
+  file = "/Users/antonio.scialdone/My Drive/Lectures/2024_LMU_scMultiomics/practical_sessions/data/v2/human_brain_3k_per_barcode_metrics.csv",
+  header = TRUE,
+  row.names = 1
+)
+
+# Import the list of cell barcodes that will be used in this notebook
+CellSubset <- readRDS("/Users/antonio.scialdone/My Drive/Lectures/2024_LMU_scMultiomics/practical_sessions/data/lessonCells_byCluster.RDS")
+  
+#"../data/homeworkCells_byCluster.RDS")
+#/data/lessonCells_byCluster.RDS"
+
+
+#set.seed(124)
+#my.cells<-sample(x = CellSubset, 
+                # size = ceiling(length(CellSubset)*0.7), 
+                 #replace = FALSE)
+#CellSubset<-my.cells
+
+# create a Seurat object containing the RNA adata
+multiObj <- CreateSeuratObject(
+  counts = counts_raw$`Gene Expression`[,CellSubset], 
+  assay = "RNA",
+  meta.data = metadata, 
+  project = "Brain",  
+  min.features = 1,
+  min.cells = 1
+)
+
+# create ATAC assay and add it to the object
+multiObj[["ATAC"]] <- CreateChromatinAssay(
+  counts = counts_raw$Peaks[,Cells(multiObj[['RNA']])], # subset the matrix to keep only cells that are in the RNA object
+  sep = c(":", "-"),
+  fragments = '/Users/antonio.scialdone/My Drive/Lectures/2024_LMU_scMultiomics/practical_sessions/data/v2/human_brain_3k_atac_fragments.tsv.gz',
+  annotation = annotation,
+  genome='hg38', 
+  validate.fragments = T,
+  min.features = 1,
+  min.cells = 1
+)
+
+multiObj <- subset(multiObj, cells=Cells(multiObj[['ATAC']]))
+multiObj
+```
+
+```{r}
+rm(counts_filtered)
+rm(counts_raw)
+gc()
+```
+
+
+# Quality control
+
+## RNA QC metrics {.tabset}
+
+```{r Compute percent mt}
+DefaultAssay(multiObj) <- "RNA"
+# The [[ operator can add columns to object metadata
+multiObj[["percent.mt"]] <- PercentageFeatureSet(multiObj, pattern = "^MT-")
+```
+
+### Distribution pre filtering
+
+Violin plot of QC metrics
+
+```{r fig.width=12}
+VlnPlot(
+  object = multiObj,
+  features = c("nFeature_RNA", "nCount_RNA", "percent.mt"),  
+  pt.size = 0.01, alpha = 0.3, ncol=3, log=TRUE
+) & theme_light() & NoLegend() 
+```
+
+### Correlation between metrics
+
+```{r}
+
+plot1 <- FeatureScatter(multiObj, feature1 = "nCount_RNA", feature2 = "nFeature_RNA", log=TRUE) + NoLegend()
+plot2 <- FeatureScatter(multiObj, feature1 = "nCount_RNA", feature2 = "percent.mt", log=TRUE) + NoLegend()
+plot1 + plot2 # the plot title is the correlation between the 2 metrics
+
+```
+
+## ATAC QC metrics {.tabset}
+
+```{r Compute QC}
+DefaultAssay(multiObj) <- "ATAC"
+
+# compute nucleosome signal score (per cell)
+multiObj <- NucleosomeSignal(object = multiObj)
+
+# compute TSS enrichment score (per cell)
+multiObj <- TSSEnrichment(object = multiObj, fast = FALSE) # the long version doesn't work
+
+# compute the fraction of reads in peaks (per cell)
+multiObj$pct_reads_in_peaks <- multiObj$atac_peak_region_fragments / multiObj$atac_fragments * 100 
+
+# compute the fraction of reads overlapping ENCODE blacklist regions (per cell)
+multiObj$blacklist_fraction <- FractionCountsInRegion(
+  object = multiObj,
+  assay = 'ATAC',
+  regions = blacklist_hg38 
+)
+```
+
+
+### TSS enrichment
+
+Group cells based on the TSS enrichment score and plot the accessibility signal over all TSS sites. 
+
+If the data is good, there should be a very distinct peak corresponding to the TSS.
+
+```{r}
+multiObj$high.tss <- ifelse(multiObj$TSS.enrichment > 3, 'High', 'Low')
+table(multiObj$high.tss)
+TSSPlot(multiObj, group.by = 'high.tss') + 
+  theme_light() + theme(text=element_text(size=14)) + NoLegend() 
+
+
+plot(density(multiObj$TSS.enrichment))
+abline(v=3, col="red")
+
+```
+
+
+### Nucleosome signal
+
+Look at the fragment length periodicity for all the cells, and group by cells with high or low nucleosomal signal strength. 
+
+Cells that are outliers for the mononucleosomal / nucleosome-free ratio have different nucleosomal banding patterns. The remaining cells exhibit a pattern that is typical for a successful ATAC-seq experiment.
+
+```{r}
+multiObj$nucleosome_group <- ifelse(multiObj$nucleosome_signal > 1.8, 'NS > 1.8', 'NS < 1.8')
+FragmentHistogram(object = multiObj, group.by = 'nucleosome_group')+
+    theme_light() + theme(text=element_text(size=15)) + NoLegend() 
+
+
+table(multiObj$nucleosome_group)
+
+plot(density(multiObj$nucleosome_signal[!is.na(multiObj$nucleosome_signal)]))
+
+```
+
+
+### Distribution pre filtering
+
+Violin plot of QC metrics
+
+```{r fig.width=12}
+VlnPlot(
+  object = multiObj,
+  features = c('atac_peak_region_fragments','pct_reads_in_peaks',
+               'TSS.enrichment', 'nucleosome_signal', 'blacklist_fraction'),  
+  pt.size = 0.01, alpha = 0.3, ncol=5
+) & theme_light() & NoLegend() 
+```
+
+### Scatter plot
+
+```{r}
+DensityScatter(multiObj, x= 'atac_peak_region_fragments', y = 'TSS.enrichment', log_x = TRUE, quantiles = F)
+
+```
+
+We could also use the thresholds computed by this new plot to filter the cells
+
+## Correlation between ATAC and RNA quality metics
+
+```{r}
+FeatureScatter(multiObj, feature1 = "nCount_RNA", feature2 = "atac_peak_region_fragments", log=TRUE) + NoLegend()
+
+```
+
+
+
+## Removing bad quality cells
+
+Filter out cells that are outliers for these QC metrics
+
+```{r}
+objFiltered <- subset(
+  x = multiObj,
+  subset = nCount_RNA > 500 & nCount_RNA < 75000 &
+    percent.mt < 5 &
+    atac_peak_region_fragments > 1500 & atac_peak_region_fragments < 75000 &
+    pct_reads_in_peaks > 15 &       
+    blacklist_fraction < 0.025 &
+    nucleosome_signal < 2 &  
+    TSS.enrichment > 2 & TSS.enrichment < 8
+)
+objFiltered
+```
+
+## Distribution post filtering
+
+```{r fig.width=12, fig.height=8}
+VlnPlot(
+  object = objFiltered,
+  features = c('nCount_RNA','nFeature_RNA', 'percent.mt', 'atac_peak_region_fragments',
+               'pct_reads_in_peaks', 'TSS.enrichment', 'nucleosome_signal', 'blacklist_fraction'),  
+  pt.size = 0.01, alpha = 0.3, ncol=4
+) & theme_light() & NoLegend() 
+```
+
+```{r}
+multiObj <- objFiltered
+
+rm(objFiltered)
+gc()
+```
+
+# Normalization 
+
+## RNA {.tabset}
+
+Normalizes the feature expression measurements for each cell by the total expression, multiplies this by a scale factor (10,000 by default), and log-transforms the result. In Seurat v5, Normalized values are stored in obj[["RNA"]]$data
+
+
+```{r}
+DefaultAssay(multiObj) <- "RNA"
+
+multiObj <- NormalizeData(multiObj, normalization.method = "LogNormalize", scale.factor = 10000)
+
+```
+
+
+### Feature selection
+
+```{r }
+multiObj <- FindVariableFeatures(multiObj, selection.method = "vst", nfeatures = 2000)
+
+# Identify the 10 most highly variable genes
+top10 <- head(VariableFeatures(multiObj), 10)
+
+top2000.vst <- head(VariableFeatures(multiObj), 2000)
+#top2000.mvp <- head(VariableFeatures(multiObj), 2000)
+
+
+  
+# plot variable features with and without labels
+plot <- VariableFeaturePlot(multiObj)
+plot <- LabelPoints(plot = plot, points = top10, repel = TRUE)
+plot
+```
+
+### Scaling 
+
+Next, we apply a linear transformation (‘scaling’) that is a standard pre-processing step prior to dimensional reduction techniques like PCA. The ScaleData() function:
+
+Shifts the expression of each gene, so that the mean expression across cells is 0
+Scales the expression of each gene, so that the variance across cells is 1
+This step gives equal weight in downstream analyses, so that highly-expressed genes do not dominate
+The results of this are stored in multiObj[["RNA"]]$scale.data
+By default, only variable features are scaled.
+You can specify the features argument to scale additional features
+
+```{r}
+all.genes <- rownames(multiObj)
+multiObj <- ScaleData(multiObj, features = all.genes)
+gc()
+```
+
+
+
+## ATAC
+
+Normalization: Signac performs term frequency-inverse document frequency (TF-IDF) normalization. This is a two-step normalization procedure, that both normalizes across cells to correct for differences in cellular sequencing depth, and across peaks to give higher values to more rare peaks.
+
+Feature selection: The low dynamic range of scATAC-seq data makes it challenging to perform variable feature selection, as we do for scRNA-seq. Instead, we can choose to use only the top n% of features (peaks) for dimensional reduction, or remove features present in less than n cells with the FindTopFeatures() function. Here, we will use all features, though we note that we see very similar results when using only a subset of features (try setting min.cutoff to ‘q75’ to use the top 25% all peaks), with faster runtimes. Features used for dimensional reduction are automatically set as VariableFeatures() for the Seurat object by this function.
+
+Dimension reduction: We next run singular value decomposition (SVD) on the TD-IDF matrix, using the features (peaks) selected above. This returns a reduced dimension representation of the object (for users who are more familiar with scRNA-seq, you can think of this as analogous to the output of PCA).
+
+The combined steps of TF-IDF followed by SVD are known as latent semantic indexing (LSI), and were first introduced for the analysis of scATAC-seq data by Cusanovich et al. 2015.
+
+```{r}
+DefaultAssay(multiObj) <- 'ATAC'
+
+multiObj <- RunTFIDF(multiObj) # normalizes across cells to correct cellular sequencing depth, and across peaks to give higher values to more rare peaks.
+
+multiObj <- FindTopFeatures(multiObj, min.cutoff = 'q0') # keep all features
+
+head(FindTopFeatures(object = multiObj[['ATAC']]['data']))
+
+
+```
+
+```{r}
+dir.create("workspaces")
+save.image(file="workspaces/Lesson_byCluster_afterNormalization.Rdata")
+```
+
+# Session Info
+
+```{r}
+sessionInfo()
+
+saveRDS()
+
+
+```
+
+
+# Homework assignment
+- Do QC on the dataset that was assigned to you: how many "bad" cells do you have? 
+- How many fail the RNA-seq criteria? How many fail the ATAC-seq criteria? Make a VennDiagram
+- Which methods are available in the "FindTopFeatures" function to select variable genes?
+- Select top 2000 variable genes with all the methods alternative to "vst" (the one we used during the lecture) and make a Venn Diagram to show the overlap between the sets of highly variable genes obtained with the different methods
+- Generate CoveragePlot() using the genes that you plotted in the previous homework
